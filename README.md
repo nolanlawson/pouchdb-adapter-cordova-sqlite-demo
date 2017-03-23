@@ -1,7 +1,7 @@
 pouchdb-adapter-cordova-sqlite-demo
 =====
 
-Demo of using [pouchdb-adapter-cordova-sqlite](http://github.com/nolanlawson/pouchdb-adapter-cordova-sqlite) in an Ionic v1 project.
+Demo of using [pouchdb-adapter-cordova-sqlite](http://github.com/nolanlawson/pouchdb-adapter-cordova-sqlite) and [cordova-plugin-sqlite-2](https://travis-ci.org/nolanlawson/cordova-plugin-sqlite-2) in an Ionic v1 project.
 
 The important part of the code is in `www/index.html`:
 
@@ -22,6 +22,8 @@ The important part of the code is in `www/index.html`:
 </script>
 ```
 
+I also added `cordova-plugin-sqlite-2` to `config.xml`, which is why it gets installed when you run `cordova prepare`.
+
 Building
 ----
 
@@ -33,9 +35,6 @@ Then check out the code from GitHub, then do:
 
     cordova platform add ios@4.0.0
     cordova prepare
-    
-Then:
-
     cordova run ios
 
 You should see:
