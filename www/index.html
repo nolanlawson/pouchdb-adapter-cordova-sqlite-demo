@@ -37,17 +37,17 @@
       have templates inline in this html file if you'd like).
     -->
     <ion-nav-view></ion-nav-view>
-    <script src="js/pouchdb-5.4.5.js"></script>
-    <script src="js/pouchdb.cordova-sqlite.js"></script>
+    <script src="js/pouchdb-6.1.2.js"></script>
+    <script src="js/pouchdb.cordova-sqlite-2.0.2.js"></script>
     <script>
       document.addEventListener('deviceready', function () {
-        PouchDB.plugin(PouchAdapterCordovaSqlite);
         var db = new PouchDB('database.db', {adapter: 'cordova-sqlite'});
         db.post({}).then(function (res) {
           return db.get(res.id);
         }).then(function (doc) {
           alert('stored a document! ' + JSON.stringify(doc));
           alert('adapter is: ' + db.adapter);
+          alert('SQLite plugin is installed?: ' + (!!window.sqlitePlugin));
         }).catch(console.log.bind(console));
       });
     </script>

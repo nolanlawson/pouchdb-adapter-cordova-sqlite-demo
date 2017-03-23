@@ -1,4 +1,32 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.PouchAdapterCordovaSqlite = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+var assign
+if (typeof Object.assign === 'function') {
+  assign = Object.assign
+} else {
+  // lite Object.assign polyfill based on
+  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
+  assign = function (target) {
+    var to = Object(target)
+
+    for (var index = 1; index < arguments.length; index++) {
+      var nextSource = arguments[index]
+
+      if (nextSource != null) { // Skip over if undefined or null
+        for (var nextKey in nextSource) {
+          // Avoid bugs when hasOwnProperty is shadowed
+          if (Object.prototype.hasOwnProperty.call(nextSource, nextKey)) {
+            to[nextKey] = nextSource[nextKey]
+          }
+        }
+      }
+    }
+    return to
+  }
+}
+
+module.exports = assign
+
+},{}],2:[function(require,module,exports){
 'use strict';
 
 module.exports = argsArray;
@@ -18,15 +46,15 @@ function argsArray(fun) {
     }
   };
 }
-},{}],2:[function(require,module,exports){
-
+},{}],3:[function(require,module,exports){
+(function (process){
 /**
  * This is the web browser implementation of `debug()`.
  *
  * Expose `debug()` as the module.
  */
 
-exports = module.exports = require(3);
+exports = module.exports = require(4);
 exports.log = log;
 exports.formatArgs = formatArgs;
 exports.save = save;
@@ -59,13 +87,23 @@ exports.colors = [
  */
 
 function useColors() {
+  // NB: In an Electron preload script, document will be defined but not fully
+  // initialized. Since we know we're in Chrome, we'll just detect this case
+  // explicitly
+  if (typeof window !== 'undefined' && window && typeof window.process !== 'undefined' && window.process.type === 'renderer') {
+    return true;
+  }
+
   // is webkit? http://stackoverflow.com/a/16459606/376773
-  return ('WebkitAppearance' in document.documentElement.style) ||
+  // document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
+  return (typeof document !== 'undefined' && document && 'WebkitAppearance' in document.documentElement.style) ||
     // is firebug? http://stackoverflow.com/a/398120/376773
-    (window.console && (console.firebug || (console.exception && console.table))) ||
+    (typeof window !== 'undefined' && window && window.console && (console.firebug || (console.exception && console.table))) ||
     // is firefox >= v31?
     // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-    (navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31);
+    (typeof navigator !== 'undefined' && navigator && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31) ||
+    // double check webkit in userAgent just in case we are in a worker
+    (typeof navigator !== 'undefined' && navigator && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/));
 }
 
 /**
@@ -73,7 +111,11 @@ function useColors() {
  */
 
 exports.formatters.j = function(v) {
-  return JSON.stringify(v);
+  try {
+    return JSON.stringify(v);
+  } catch (err) {
+    return '[UnexpectedJSONParseError]: ' + err.message;
+  }
 };
 
 
@@ -83,8 +125,7 @@ exports.formatters.j = function(v) {
  * @api public
  */
 
-function formatArgs() {
-  var args = arguments;
+function formatArgs(args) {
   var useColors = this.useColors;
 
   args[0] = (useColors ? '%c' : '')
@@ -94,17 +135,17 @@ function formatArgs() {
     + (useColors ? '%c ' : ' ')
     + '+' + exports.humanize(this.diff);
 
-  if (!useColors) return args;
+  if (!useColors) return;
 
   var c = 'color: ' + this.color;
-  args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
+  args.splice(1, 0, c, 'color: inherit')
 
   // the final "%c" is somewhat tricky, because there could be other
   // arguments passed either before or after the %c, so we need to
   // figure out the correct index to insert the CSS into
   var index = 0;
   var lastC = 0;
-  args[0].replace(/%[a-z%]/g, function(match) {
+  args[0].replace(/%[a-zA-Z%]/g, function(match) {
     if ('%%' === match) return;
     index++;
     if ('%c' === match) {
@@ -115,7 +156,6 @@ function formatArgs() {
   });
 
   args.splice(lastC, 0, c);
-  return args;
 }
 
 /**
@@ -158,11 +198,14 @@ function save(namespaces) {
  */
 
 function load() {
-  var r;
   try {
-    r = exports.storage.debug;
+    return exports.storage.debug;
   } catch(e) {}
-  return r;
+
+  // If debug isn't set in LS, and we're in Electron, try to load $DEBUG
+  if (typeof process !== 'undefined' && 'env' in process) {
+    return process.env.DEBUG;
+  }
 }
 
 /**
@@ -182,13 +225,14 @@ exports.enable(load());
  * @api private
  */
 
-function localstorage(){
+function localstorage() {
   try {
     return window.localStorage;
   } catch (e) {}
 }
 
-},{"3":3}],3:[function(require,module,exports){
+}).call(this,require(20))
+},{"20":20,"4":4}],4:[function(require,module,exports){
 
 /**
  * This is the common logic for both the Node.js and web browser
@@ -197,7 +241,7 @@ function localstorage(){
  * Expose `debug()` as the module.
  */
 
-exports = module.exports = debug;
+exports = module.exports = createDebug.debug = createDebug.default = createDebug;
 exports.coerce = coerce;
 exports.disable = disable;
 exports.enable = enable;
@@ -214,16 +258,10 @@ exports.skips = [];
 /**
  * Map of special "%n" handling functions, for the debug "format" argument.
  *
- * Valid key names are a single, lowercased letter, i.e. "n".
+ * Valid key names are a single, lower or upper-case letter, i.e. "n" and "N".
  */
 
 exports.formatters = {};
-
-/**
- * Previously assigned color.
- */
-
-var prevColor = 0;
 
 /**
  * Previous log timestamp.
@@ -233,13 +271,20 @@ var prevTime;
 
 /**
  * Select a color.
- *
+ * @param {String} namespace
  * @return {Number}
  * @api private
  */
 
-function selectColor() {
-  return exports.colors[prevColor++ % exports.colors.length];
+function selectColor(namespace) {
+  var hash = 0, i;
+
+  for (i in namespace) {
+    hash  = ((hash << 5) - hash) + namespace.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+
+  return exports.colors[Math.abs(hash) % exports.colors.length];
 }
 
 /**
@@ -250,17 +295,13 @@ function selectColor() {
  * @api public
  */
 
-function debug(namespace) {
+function createDebug(namespace) {
 
-  // define the `disabled` version
-  function disabled() {
-  }
-  disabled.enabled = false;
+  function debug() {
+    // disabled?
+    if (!debug.enabled) return;
 
-  // define the `enabled` version
-  function enabled() {
-
-    var self = enabled;
+    var self = debug;
 
     // set `diff` timestamp
     var curr = +new Date();
@@ -270,22 +311,22 @@ function debug(namespace) {
     self.curr = curr;
     prevTime = curr;
 
-    // add the `color` if not set
-    if (null == self.useColors) self.useColors = exports.useColors();
-    if (null == self.color && self.useColors) self.color = selectColor();
-
-    var args = Array.prototype.slice.call(arguments);
+    // turn the `arguments` into a proper Array
+    var args = new Array(arguments.length);
+    for (var i = 0; i < args.length; i++) {
+      args[i] = arguments[i];
+    }
 
     args[0] = exports.coerce(args[0]);
 
     if ('string' !== typeof args[0]) {
-      // anything else let's inspect with %o
-      args = ['%o'].concat(args);
+      // anything else let's inspect with %O
+      args.unshift('%O');
     }
 
     // apply any `formatters` transformations
     var index = 0;
-    args[0] = args[0].replace(/%([a-z%])/g, function(match, format) {
+    args[0] = args[0].replace(/%([a-zA-Z%])/g, function(match, format) {
       // if we encounter an escaped % then don't increase the array index
       if (match === '%%') return match;
       index++;
@@ -301,19 +342,24 @@ function debug(namespace) {
       return match;
     });
 
-    if ('function' === typeof exports.formatArgs) {
-      args = exports.formatArgs.apply(self, args);
-    }
-    var logFn = enabled.log || exports.log || console.log.bind(console);
+    // apply env-specific formatting (colors, etc.)
+    exports.formatArgs.call(self, args);
+
+    var logFn = debug.log || exports.log || console.log.bind(console);
     logFn.apply(self, args);
   }
-  enabled.enabled = true;
 
-  var fn = exports.enabled(namespace) ? enabled : disabled;
+  debug.namespace = namespace;
+  debug.enabled = exports.enabled(namespace);
+  debug.useColors = exports.useColors();
+  debug.color = selectColor(namespace);
 
-  fn.namespace = namespace;
+  // env-specific initialization logic for debug instances
+  if ('function' === typeof exports.init) {
+    exports.init(debug);
+  }
 
-  return fn;
+  return debug;
 }
 
 /**
@@ -387,7 +433,7 @@ function coerce(val) {
   return val;
 }
 
-},{"9":9}],4:[function(require,module,exports){
+},{"9":9}],5:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -691,7 +737,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 (function (global){
 'use strict';
 var Mutation = global.MutationObserver || global.WebKitMutationObserver;
@@ -764,7 +810,7 @@ function immediate(task) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -789,44 +835,9 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],7:[function(require,module,exports){
-(function(factory) {
-  if(typeof exports === 'object') {
-    factory(exports);
-  } else {
-    factory(this);
-  }
-}).call(this, function(root) { 
-
-  var slice   = Array.prototype.slice,
-      each    = Array.prototype.forEach;
-
-  var extend = function(obj) {
-    if(typeof obj !== 'object') throw obj + ' is not an object' ;
-
-    var sources = slice.call(arguments, 1); 
-
-    each.call(sources, function(source) {
-      if(source) {
-        for(var prop in source) {
-          if(typeof source[prop] === 'object' && obj[prop]) {
-            extend.call(obj, obj[prop], source[prop]);
-          } else {
-            obj[prop] = source[prop];
-          }
-        } 
-      }
-    });
-
-    return obj;
-  }
-
-  root.extend = extend;
-});
-
 },{}],8:[function(require,module,exports){
 'use strict';
-var immediate = require(5);
+var immediate = require(6);
 
 /* istanbul ignore next */
 function INTERNAL() {}
@@ -1079,16 +1090,16 @@ function race(iterable) {
   }
 }
 
-},{"5":5}],9:[function(require,module,exports){
+},{"6":6}],9:[function(require,module,exports){
 /**
  * Helpers.
  */
 
-var s = 1000;
-var m = s * 60;
-var h = m * 60;
-var d = h * 24;
-var y = d * 365.25;
+var s = 1000
+var m = s * 60
+var h = m * 60
+var d = h * 24
+var y = d * 365.25
 
 /**
  * Parse or format the given `val`.
@@ -1099,17 +1110,23 @@ var y = d * 365.25;
  *
  * @param {String|Number} val
  * @param {Object} options
+ * @throws {Error} throw an error if val is not a non-empty string or a number
  * @return {String|Number}
  * @api public
  */
 
-module.exports = function(val, options){
-  options = options || {};
-  if ('string' == typeof val) return parse(val);
-  return options.long
-    ? long(val)
-    : short(val);
-};
+module.exports = function (val, options) {
+  options = options || {}
+  var type = typeof val
+  if (type === 'string' && val.length > 0) {
+    return parse(val)
+  } else if (type === 'number' && isNaN(val) === false) {
+    return options.long ?
+			fmtLong(val) :
+			fmtShort(val)
+  }
+  throw new Error('val is not a non-empty string or a valid number. val=' + JSON.stringify(val))
+}
 
 /**
  * Parse the given `str` and return milliseconds.
@@ -1120,47 +1137,53 @@ module.exports = function(val, options){
  */
 
 function parse(str) {
-  str = '' + str;
-  if (str.length > 10000) return;
-  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
-  if (!match) return;
-  var n = parseFloat(match[1]);
-  var type = (match[2] || 'ms').toLowerCase();
+  str = String(str)
+  if (str.length > 10000) {
+    return
+  }
+  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str)
+  if (!match) {
+    return
+  }
+  var n = parseFloat(match[1])
+  var type = (match[2] || 'ms').toLowerCase()
   switch (type) {
     case 'years':
     case 'year':
     case 'yrs':
     case 'yr':
     case 'y':
-      return n * y;
+      return n * y
     case 'days':
     case 'day':
     case 'd':
-      return n * d;
+      return n * d
     case 'hours':
     case 'hour':
     case 'hrs':
     case 'hr':
     case 'h':
-      return n * h;
+      return n * h
     case 'minutes':
     case 'minute':
     case 'mins':
     case 'min':
     case 'm':
-      return n * m;
+      return n * m
     case 'seconds':
     case 'second':
     case 'secs':
     case 'sec':
     case 's':
-      return n * s;
+      return n * s
     case 'milliseconds':
     case 'millisecond':
     case 'msecs':
     case 'msec':
     case 'ms':
-      return n;
+      return n
+    default:
+      return undefined
   }
 }
 
@@ -1172,12 +1195,20 @@ function parse(str) {
  * @api private
  */
 
-function short(ms) {
-  if (ms >= d) return Math.round(ms / d) + 'd';
-  if (ms >= h) return Math.round(ms / h) + 'h';
-  if (ms >= m) return Math.round(ms / m) + 'm';
-  if (ms >= s) return Math.round(ms / s) + 's';
-  return ms + 'ms';
+function fmtShort(ms) {
+  if (ms >= d) {
+    return Math.round(ms / d) + 'd'
+  }
+  if (ms >= h) {
+    return Math.round(ms / h) + 'h'
+  }
+  if (ms >= m) {
+    return Math.round(ms / m) + 'm'
+  }
+  if (ms >= s) {
+    return Math.round(ms / s) + 's'
+  }
+  return ms + 'ms'
 }
 
 /**
@@ -1188,12 +1219,12 @@ function short(ms) {
  * @api private
  */
 
-function long(ms) {
-  return plural(ms, d, 'day')
-    || plural(ms, h, 'hour')
-    || plural(ms, m, 'minute')
-    || plural(ms, s, 'second')
-    || ms + ' ms';
+function fmtLong(ms) {
+  return plural(ms, d, 'day') ||
+    plural(ms, h, 'hour') ||
+    plural(ms, m, 'minute') ||
+    plural(ms, s, 'second') ||
+    ms + ' ms'
 }
 
 /**
@@ -1201,9 +1232,13 @@ function long(ms) {
  */
 
 function plural(ms, n, name) {
-  if (ms < n) return;
-  if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
-  return Math.ceil(ms / n) + ' ' + name + 's';
+  if (ms < n) {
+    return
+  }
+  if (ms < n * 1.5) {
+    return Math.floor(ms / n) + ' ' + name
+  }
+  return Math.ceil(ms / n) + ' ' + name + 's'
 }
 
 },{}],10:[function(require,module,exports){
@@ -1515,8 +1550,8 @@ function updateDoc(revLimit, prev, docInfo, results,
   }
 
   // recalculate
-  var winningRev = pouchdbMerge.winningRev(docInfo.metadata);
-  var winningRevIsDeleted = pouchdbMerge.isDeleted(docInfo.metadata, winningRev);
+  var winningRev$$1 = pouchdbMerge.winningRev(docInfo.metadata);
+  var winningRevIsDeleted = pouchdbMerge.isDeleted(docInfo.metadata, winningRev$$1);
 
   // calculate the total number of documents that were added/removed,
   // from the perspective of total_rows/doc_count
@@ -1524,7 +1559,7 @@ function updateDoc(revLimit, prev, docInfo, results,
     previouslyDeleted < winningRevIsDeleted ? -1 : 1;
 
   var newRevIsDeleted;
-  if (newRev === winningRev) {
+  if (newRev === winningRev$$1) {
     // if the new rev is the same as the winning rev, we can reuse that value
     newRevIsDeleted = winningRevIsDeleted;
   } else {
@@ -1532,7 +1567,7 @@ function updateDoc(revLimit, prev, docInfo, results,
     newRevIsDeleted = pouchdbMerge.isDeleted(docInfo.metadata, newRev);
   }
 
-  writeDoc(docInfo, winningRev, winningRevIsDeleted, newRevIsDeleted,
+  writeDoc(docInfo, winningRev$$1, winningRevIsDeleted, newRevIsDeleted,
     true, delta, i, cb);
 }
 
@@ -1548,8 +1583,8 @@ function processDocs(revLimit, docInfos, api, fetchedDocs, tx, results,
 
   function insertDoc(docInfo, resultsIdx, callback) {
     // Cant insert new deleted documents
-    var winningRev = pouchdbMerge.winningRev(docInfo.metadata);
-    var deleted = pouchdbMerge.isDeleted(docInfo.metadata, winningRev);
+    var winningRev$$1 = pouchdbMerge.winningRev(docInfo.metadata);
+    var deleted = pouchdbMerge.isDeleted(docInfo.metadata, winningRev$$1);
     if ('was_delete' in opts && deleted) {
       results[resultsIdx] = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'deleted');
       return callback();
@@ -1566,7 +1601,7 @@ function processDocs(revLimit, docInfos, api, fetchedDocs, tx, results,
 
     var delta = deleted ? 0 : 1;
 
-    writeDoc(docInfo, winningRev, deleted, deleted, false,
+    writeDoc(docInfo, winningRev$$1, deleted, deleted, false,
       delta, resultsIdx, callback);
   }
 
@@ -1643,10 +1678,10 @@ exports.parseDoc = parseDoc;
 exports.preprocessAttachments = preprocessAttachments;
 exports.processDocs = processDocs;
 exports.updateDoc = updateDoc;
+
 },{"12":12,"13":13,"14":14,"16":16,"17":17,"19":19}],11:[function(require,module,exports){
 'use strict';
 
-var jsExtend = require(7);
 var pouchdbUtils = require(19);
 var pouchdbAdapterUtils = require(10);
 var pouchdbMerge = require(17);
@@ -1936,7 +1971,6 @@ function websqlBulkDocs(dbOpts, req, opts, api, db, websqlChanges, callback) {
       return callback(preconditionErrored);
     }
     websqlChanges.notify(api._name);
-    api._docCount = -1; // invalidate
     callback(null, results);
   }
 
@@ -2113,6 +2147,7 @@ function websqlBulkDocs(dbOpts, req, opts, api, db, websqlChanges, callback) {
       }
 
       docInfo.metadata.seq = seq;
+      var rev = docInfo.metadata.rev;
       delete docInfo.metadata.rev;
 
       var sql = isUpdate ?
@@ -2130,7 +2165,7 @@ function websqlBulkDocs(dbOpts, req, opts, api, db, websqlChanges, callback) {
         results[resultsIdx] = {
           ok: true,
           id: docInfo.metadata.id,
-          rev: winningRev
+          rev: rev
         };
         fetchedDocs.set(id, docInfo.metadata);
         callback();
@@ -2234,9 +2269,6 @@ function openDB(opts) {
   if (!cachedResult) {
     cachedResult = openDBSafely(opts);
     cachedDatabases.set(opts.name, cachedResult);
-    if (cachedResult.db) {
-      cachedResult.db._sqlitePlugin = typeof sqlitePlugin !== 'undefined';
-    }
   }
   return cachedResult;
 }
@@ -2260,7 +2292,7 @@ function fetchAttachmentsIfNecessary(doc, opts, api, txn, cb) {
     var attObj = doc._attachments[att];
     var attOpts = {binary: opts.binary, ctx: txn};
     api._getAttachment(doc._id, att, attObj, attOpts, function (_, data) {
-      doc._attachments[att] = jsExtend.extend(
+      doc._attachments[att] = pouchdbUtils.assign(
         pouchdbUtils.pick(attObj, ['digest', 'content_type']),
         { data: data }
       );
@@ -2313,12 +2345,11 @@ function WebSqlPouch(opts, callback) {
   var idRequests = [];
   var encoding;
 
-  api._docCount = -1; // cache sqlite count(*) for performance
   api._name = opts.name;
 
   // extend the options here, because sqlite plugin has a ton of options
   // and they are constantly changing, so it's more prudent to allow anything
-  var websqlOpts = jsExtend.extend({}, opts, {
+  var websqlOpts = pouchdbUtils.assign({}, opts, {
     version: POUCH_VERSION,
     description: opts.name,
     size: size
@@ -2715,6 +2746,27 @@ function WebSqlPouch(opts, callback) {
 
   setup();
 
+  function getMaxSeq(tx, callback) {
+    var sql = 'SELECT MAX(seq) AS seq FROM ' + BY_SEQ_STORE;
+    tx.executeSql(sql, [], function (tx, res) {
+      var updateSeq = res.rows.item(0).seq || 0;
+      callback(updateSeq);
+    });
+  }
+
+  function countDocs(tx, callback) {
+    // count the total rows
+    var sql = select(
+      'COUNT(' + DOC_STORE + '.id) AS \'num\'',
+      [DOC_STORE, BY_SEQ_STORE],
+      DOC_STORE_AND_BY_SEQ_JOINER,
+      BY_SEQ_STORE + '.deleted=0');
+
+    tx.executeSql(sql, [], function (tx, result) {
+      callback(result.rows.item(0).num);
+    });
+  }
+
   api.type = function () {
     return 'websql';
   };
@@ -2724,93 +2776,102 @@ function WebSqlPouch(opts, callback) {
   });
 
   api._info = function (callback) {
+    var seq;
+    var docCount;
     db.readTransaction(function (tx) {
-      countDocs(tx, function (docCount) {
-        var sql = 'SELECT MAX(seq) AS seq FROM ' + BY_SEQ_STORE;
-        tx.executeSql(sql, [], function (tx, res) {
-          var updateSeq = res.rows.item(0).seq || 0;
-          callback(null, {
-            doc_count: docCount,
-            update_seq: updateSeq,
-            // for debugging
-            sqlite_plugin: db._sqlitePlugin,
-            websql_encoding: encoding
-          });
-        });
+      getMaxSeq(tx, function (theSeq) {
+        seq = theSeq;
       });
-    }, websqlError(callback));
+      countDocs(tx, function (theDocCount) {
+        docCount = theDocCount;
+      });
+    }, websqlError(callback), function () {
+      callback(null, {
+        doc_count: docCount,
+        update_seq: seq,
+        websql_encoding: encoding
+      });
+    });
   };
 
   api._bulkDocs = function (req, reqOpts, callback) {
     websqlBulkDocs(opts, req, reqOpts, api, db, websqlChanges, callback);
   };
 
+  function latest$$1(tx, id, rev, callback, finish) {
+    var sql = select(
+        SELECT_DOCS,
+        [DOC_STORE, BY_SEQ_STORE],
+        DOC_STORE_AND_BY_SEQ_JOINER,
+        DOC_STORE + '.id=?');
+    var sqlArgs = [id];
+
+    tx.executeSql(sql, sqlArgs, function (a, results) {
+      if (!results.rows.length) {
+        var err = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'missing');
+        return finish(err);
+      }
+      var item = results.rows.item(0);
+      var metadata = pouchdbJson.safeJsonParse(item.metadata);
+      callback(pouchdbMerge.latest(rev, metadata));
+    });
+  }
+
   api._get = function (id, opts, callback) {
     var doc;
     var metadata;
-    var err;
     var tx = opts.ctx;
     if (!tx) {
       return db.readTransaction(function (txn) {
-        api._get(id, jsExtend.extend({ctx: txn}, opts), callback);
+        api._get(id, pouchdbUtils.assign({ctx: txn}, opts), callback);
       });
     }
 
-    function finish() {
+    function finish(err) {
       callback(err, {doc: doc, metadata: metadata, ctx: tx});
     }
 
     var sql;
     var sqlArgs;
-    if (opts.rev) {
-      sql = select(
-        SELECT_DOCS,
-        [DOC_STORE, BY_SEQ_STORE],
-        DOC_STORE + '.id=' + BY_SEQ_STORE + '.doc_id',
-        [BY_SEQ_STORE + '.doc_id=?', BY_SEQ_STORE + '.rev=?']);
-      sqlArgs = [id, opts.rev];
-    } else {
+
+    if(!opts.rev) {
       sql = select(
         SELECT_DOCS,
         [DOC_STORE, BY_SEQ_STORE],
         DOC_STORE_AND_BY_SEQ_JOINER,
         DOC_STORE + '.id=?');
       sqlArgs = [id];
+    } else if (opts.latest) {
+      latest$$1(tx, id, opts.rev, function (latestRev) {
+        opts.latest = false;
+        opts.rev = latestRev;
+        api._get(id, opts, callback);
+      }, finish);
+      return;
+    } else {
+      sql = select(
+        SELECT_DOCS,
+        [DOC_STORE, BY_SEQ_STORE],
+        DOC_STORE + '.id=' + BY_SEQ_STORE + '.doc_id',
+        [BY_SEQ_STORE + '.doc_id=?', BY_SEQ_STORE + '.rev=?']);
+      sqlArgs = [id, opts.rev];
     }
+
     tx.executeSql(sql, sqlArgs, function (a, results) {
       if (!results.rows.length) {
-        err = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'missing');
-        return finish();
+        var missingErr = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'missing');
+        return finish(missingErr);
       }
       var item = results.rows.item(0);
       metadata = pouchdbJson.safeJsonParse(item.metadata);
       if (item.deleted && !opts.rev) {
-        err = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'deleted');
-        return finish();
+        var deletedErr = pouchdbErrors.createError(pouchdbErrors.MISSING_DOC, 'deleted');
+        return finish(deletedErr);
       }
       doc = unstringifyDoc(item.data, metadata.id, item.rev);
       finish();
     });
   };
-
-  function countDocs(tx, callback) {
-
-    if (api._docCount !== -1) {
-      return callback(api._docCount);
-    }
-
-    // count the total rows
-    var sql = select(
-      'COUNT(' + DOC_STORE + '.id) AS \'num\'',
-      [DOC_STORE, BY_SEQ_STORE],
-      DOC_STORE_AND_BY_SEQ_JOINER,
-      BY_SEQ_STORE + '.deleted=0');
-
-    tx.executeSql(sql, [], function (tx, result) {
-      api._docCount = result.rows.item(0).num;
-      callback(api._docCount);
-    });
-  }
 
   api._allDocs = function (opts, callback) {
     var results = [];
@@ -2855,56 +2916,58 @@ function WebSqlPouch(opts, callback) {
     }
 
     db.readTransaction(function (tx) {
+      // count the docs in parallel to other operations
+      countDocs(tx, function (docCount) {
+        totalRows = docCount;
+      });
 
-      // first count up the total rows
-      countDocs(tx, function (count) {
-        totalRows = count;
+      if (limit === 0) {
+        return;
+      }
 
-        if (limit === 0) {
-          return;
-        }
+      // do a single query to fetch the documents
+      var sql = select(
+        SELECT_DOCS,
+        [DOC_STORE, BY_SEQ_STORE],
+        DOC_STORE_AND_BY_SEQ_JOINER,
+        criteria,
+        DOC_STORE + '.id ' + (descending ? 'DESC' : 'ASC')
+        );
+      sql += ' LIMIT ' + limit + ' OFFSET ' + offset;
 
-        // then actually fetch the documents
-        var sql = select(
-          SELECT_DOCS,
-          [DOC_STORE, BY_SEQ_STORE],
-          DOC_STORE_AND_BY_SEQ_JOINER,
-          criteria,
-          DOC_STORE + '.id ' + (descending ? 'DESC' : 'ASC')
-          );
-        sql += ' LIMIT ' + limit + ' OFFSET ' + offset;
-
-        tx.executeSql(sql, sqlArgs, function (tx, result) {
-          for (var i = 0, l = result.rows.length; i < l; i++) {
-            var item = result.rows.item(i);
-            var metadata = pouchdbJson.safeJsonParse(item.metadata);
-            var id = metadata.id;
-            var data = unstringifyDoc(item.data, id, item.rev);
-            var winningRev = data._rev;
-            var doc = {
-              id: id,
-              key: id,
-              value: {rev: winningRev}
-            };
-            if (opts.include_docs) {
-              doc.doc = data;
-              doc.doc._rev = winningRev;
-              if (opts.conflicts) {
-                doc.doc._conflicts = pouchdbMerge.collectConflicts(metadata);
-              }
-              fetchAttachmentsIfNecessary(doc.doc, opts, api, tx);
-            }
-            if (item.deleted) {
-              if (opts.deleted === 'ok') {
-                doc.value.deleted = true;
-                doc.doc = null;
-              } else {
-                continue;
+      tx.executeSql(sql, sqlArgs, function (tx, result) {
+        for (var i = 0, l = result.rows.length; i < l; i++) {
+          var item = result.rows.item(i);
+          var metadata = pouchdbJson.safeJsonParse(item.metadata);
+          var id = metadata.id;
+          var data = unstringifyDoc(item.data, id, item.rev);
+          var winningRev = data._rev;
+          var doc = {
+            id: id,
+            key: id,
+            value: {rev: winningRev}
+          };
+          if (opts.include_docs) {
+            doc.doc = data;
+            doc.doc._rev = winningRev;
+            if (opts.conflicts) {
+              var conflicts = pouchdbMerge.collectConflicts(metadata);
+              if (conflicts.length) {
+                doc.doc._conflicts = conflicts;
               }
             }
-            results.push(doc);
+            fetchAttachmentsIfNecessary(doc.doc, opts, api, tx);
           }
-        });
+          if (item.deleted) {
+            if (opts.deleted === 'ok') {
+              doc.value.deleted = true;
+              doc.doc = null;
+            } else {
+              continue;
+            }
+          }
+          results.push(doc);
+        }
       });
     }, websqlError(callback), function () {
       callback(null, {
@@ -3229,16 +3292,17 @@ function WebSqlPouch(opts, callback) {
 }
 
 module.exports = WebSqlPouch;
-},{"10":10,"12":12,"13":13,"14":14,"15":15,"17":17,"19":19,"7":7}],12:[function(require,module,exports){
+
+},{"10":10,"12":12,"13":13,"14":14,"15":15,"17":17,"19":19}],12:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
-var atob$1 = function (str) {
+var thisAtob = function (str) {
   return atob(str);
 };
 
-var btoa$1 = function (str) {
+var thisBtoa = function (str) {
   return btoa(str);
 };
 
@@ -3284,7 +3348,7 @@ function binStringToBluffer(binString, type) {
 }
 
 function b64ToBluffer(b64, type) {
-  return binStringToBluffer(atob$1(b64), type);
+  return binStringToBluffer(thisAtob(b64), type);
 }
 
 //Can't find original post, but this is close
@@ -3333,7 +3397,7 @@ function blobToBinaryString(blobOrBuffer, callback) {
 
 function blobToBase64(blobOrBuffer, callback) {
   blobToBinaryString(blobOrBuffer, function (base64) {
-    callback(btoa$1(base64));
+    callback(thisBtoa(base64));
   });
 }
 
@@ -3357,8 +3421,8 @@ function readAsArrayBuffer(blob, callback) {
 function typedBuffer() {
 }
 
-exports.atob = atob$1;
-exports.btoa = btoa$1;
+exports.atob = thisAtob;
+exports.btoa = thisBtoa;
 exports.base64StringToBlobOrBuffer = b64ToBluffer;
 exports.binaryStringToArrayBuffer = binaryStringToArrayBuffer;
 exports.binaryStringToBlobOrBuffer = binStringToBluffer;
@@ -3368,59 +3432,57 @@ exports.blobOrBufferToBinaryString = blobToBinaryString;
 exports.readAsArrayBuffer = readAsArrayBuffer;
 exports.readAsBinaryString = readAsBinaryString;
 exports.typedBuffer = typedBuffer;
+
 },{}],13:[function(require,module,exports){
 'use strict';
-exports.Map = LazyMap; // TODO: use ES6 map
-exports.Set = LazySet; // TODO: use ES6 set
-// based on https://github.com/montagejs/collections
-function LazyMap() {
-  this.store = {};
-}
-LazyMap.prototype.mangle = function (key) {
-  if (typeof key !== "string") {
-    throw new TypeError("key must be a string but Got " + key);
-  }
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+function mangle(key) {
   return '$' + key;
-};
-LazyMap.prototype.unmangle = function (key) {
+}
+function unmangle(key) {
   return key.substring(1);
+}
+function Map$1() {
+  this._store = {};
+}
+Map$1.prototype.get = function (key) {
+  var mangled = mangle(key);
+  return this._store[mangled];
 };
-LazyMap.prototype.get = function (key) {
-  var mangled = this.mangle(key);
-  if (mangled in this.store) {
-    return this.store[mangled];
-  }
-  return void 0;
-};
-LazyMap.prototype.set = function (key, value) {
-  var mangled = this.mangle(key);
-  this.store[mangled] = value;
+Map$1.prototype.set = function (key, value) {
+  var mangled = mangle(key);
+  this._store[mangled] = value;
   return true;
 };
-LazyMap.prototype.has = function (key) {
-  var mangled = this.mangle(key);
-  return mangled in this.store;
+Map$1.prototype.has = function (key) {
+  var mangled = mangle(key);
+  return mangled in this._store;
 };
-LazyMap.prototype.delete = function (key) {
-  var mangled = this.mangle(key);
-  if (mangled in this.store) {
-    delete this.store[mangled];
-    return true;
-  }
-  return false;
+Map$1.prototype.delete = function (key) {
+  var mangled = mangle(key);
+  var res = mangled in this._store;
+  delete this._store[mangled];
+  return res;
 };
-LazyMap.prototype.forEach = function (cb) {
-  var keys = Object.keys(this.store);
+Map$1.prototype.forEach = function (cb) {
+  var keys = Object.keys(this._store);
   for (var i = 0, len = keys.length; i < len; i++) {
     var key = keys[i];
-    var value = this.store[key];
-    key = this.unmangle(key);
+    var value = this._store[key];
+    key = unmangle(key);
     cb(value, key);
   }
 };
+Object.defineProperty(Map$1.prototype, 'size', {
+  get: function () {
+    return Object.keys(this._store).length;
+  }
+});
 
-function LazySet(array) {
-  this.store = new LazyMap();
+function Set$1(array) {
+  this._store = new Map$1();
 
   // init with an array
   if (array && Array.isArray(array)) {
@@ -3429,15 +3491,47 @@ function LazySet(array) {
     }
   }
 }
-LazySet.prototype.add = function (key) {
-  return this.store.set(key, true);
+Set$1.prototype.add = function (key) {
+  return this._store.set(key, true);
 };
-LazySet.prototype.has = function (key) {
-  return this.store.has(key);
+Set$1.prototype.has = function (key) {
+  return this._store.has(key);
 };
-LazySet.prototype.delete = function (key) {
-  return this.store.delete(key);
+Set$1.prototype.forEach = function (cb) {
+  this._store.forEach(function (value, key) {
+    cb(key);
+  });
 };
+Object.defineProperty(Set$1.prototype, 'size', {
+  get: function () {
+    return this._store.size;
+  }
+});
+
+/* global Map,Set,Symbol */
+// Based on https://kangax.github.io/compat-table/es6/ we can sniff out
+// incomplete Map/Set implementations which would otherwise cause our tests to fail.
+// Notably they fail in IE11 and iOS 8.4, which this prevents.
+function supportsMapAndSet() {
+  if (typeof Symbol === 'undefined' || typeof Map === 'undefined' || typeof Set === 'undefined') {
+    return false;
+  }
+  var prop = Object.getOwnPropertyDescriptor(Map, Symbol.species);
+  return prop && 'get' in prop && Map[Symbol.species] === Map;
+}
+
+// based on https://github.com/montagejs/collections
+/* global Map,Set */
+
+{
+  if (supportsMapAndSet()) { // prefer built-in Map/Set
+    exports.Set = Set;
+    exports.Map = Map;
+  } else { // fall back to our polyfill
+    exports.Set = Set$1;
+    exports.Map = Map$1;
+  }
+}
 
 },{}],14:[function(require,module,exports){
 'use strict';
@@ -3446,15 +3540,15 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
 
-var inherits = _interopDefault(require(6));
+var inherits = _interopDefault(require(7));
 
 inherits(PouchError, Error);
 
-function PouchError(opts) {
-  Error.call(this, opts.reason);
-  this.status = opts.status;
-  this.name = opts.error;
-  this.message = opts.reason;
+function PouchError(status, error, reason) {
+  Error.call(this, reason);
+  this.status = status;
+  this.name = error;
+  this.message = reason;
   this.error = true;
 }
 
@@ -3467,148 +3561,30 @@ PouchError.prototype.toString = function () {
   });
 };
 
-var UNAUTHORIZED = new PouchError({
-  status: 401,
-  error: 'unauthorized',
-  reason: "Name or password is incorrect."
-});
-
-var MISSING_BULK_DOCS = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: "Missing JSON list of 'docs'"
-});
-
-var MISSING_DOC = new PouchError({
-  status: 404,
-  error: 'not_found',
-  reason: 'missing'
-});
-
-var REV_CONFLICT = new PouchError({
-  status: 409,
-  error: 'conflict',
-  reason: 'Document update conflict'
-});
-
-var INVALID_ID = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: '_id field must contain a string'
-});
-
-var MISSING_ID = new PouchError({
-  status: 412,
-  error: 'missing_id',
-  reason: '_id is required for puts'
-});
-
-var RESERVED_ID = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: 'Only reserved document ids may start with underscore.'
-});
-
-var NOT_OPEN = new PouchError({
-  status: 412,
-  error: 'precondition_failed',
-  reason: 'Database not open'
-});
-
-var UNKNOWN_ERROR = new PouchError({
-  status: 500,
-  error: 'unknown_error',
-  reason: 'Database encountered an unknown error'
-});
-
-var BAD_ARG = new PouchError({
-  status: 500,
-  error: 'badarg',
-  reason: 'Some query argument is invalid'
-});
-
-var INVALID_REQUEST = new PouchError({
-  status: 400,
-  error: 'invalid_request',
-  reason: 'Request was invalid'
-});
-
-var QUERY_PARSE_ERROR = new PouchError({
-  status: 400,
-  error: 'query_parse_error',
-  reason: 'Some query parameter is invalid'
-});
-
-var DOC_VALIDATION = new PouchError({
-  status: 500,
-  error: 'doc_validation',
-  reason: 'Bad special document member'
-});
-
-var BAD_REQUEST = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: 'Something wrong with the request'
-});
-
-var NOT_AN_OBJECT = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: 'Document must be a JSON object'
-});
-
-var DB_MISSING = new PouchError({
-  status: 404,
-  error: 'not_found',
-  reason: 'Database not found'
-});
-
-var IDB_ERROR = new PouchError({
-  status: 500,
-  error: 'indexed_db_went_bad',
-  reason: 'unknown'
-});
-
-var WSQ_ERROR = new PouchError({
-  status: 500,
-  error: 'web_sql_went_bad',
-  reason: 'unknown'
-});
-
-var LDB_ERROR = new PouchError({
-  status: 500,
-  error: 'levelDB_went_went_bad',
-  reason: 'unknown'
-});
-
-var FORBIDDEN = new PouchError({
-  status: 403,
-  error: 'forbidden',
-  reason: 'Forbidden by design doc validate_doc_update function'
-});
-
-var INVALID_REV = new PouchError({
-  status: 400,
-  error: 'bad_request',
-  reason: 'Invalid rev format'
-});
-
-var FILE_EXISTS = new PouchError({
-  status: 412,
-  error: 'file_exists',
-  reason: 'The database could not be created, the file already exists.'
-});
-
-var MISSING_STUB = new PouchError({
-  status: 412,
-  error: 'missing_stub'
-});
-
-var INVALID_URL = new PouchError({
-  status: 413,
-  error: 'invalid_url',
-  reason: 'Provided URL is invalid'
-});
+var UNAUTHORIZED = new PouchError(401, 'unauthorized', "Name or password is incorrect.");
+var MISSING_BULK_DOCS = new PouchError(400, 'bad_request', "Missing JSON list of 'docs'");
+var MISSING_DOC = new PouchError(404, 'not_found', 'missing');
+var REV_CONFLICT = new PouchError(409, 'conflict', 'Document update conflict');
+var INVALID_ID = new PouchError(400, 'bad_request', '_id field must contain a string');
+var MISSING_ID = new PouchError(412, 'missing_id', '_id is required for puts');
+var RESERVED_ID = new PouchError(400, 'bad_request', 'Only reserved document ids may start with underscore.');
+var NOT_OPEN = new PouchError(412, 'precondition_failed', 'Database not open');
+var UNKNOWN_ERROR = new PouchError(500, 'unknown_error', 'Database encountered an unknown error');
+var BAD_ARG = new PouchError(500, 'badarg', 'Some query argument is invalid');
+var INVALID_REQUEST = new PouchError(400, 'invalid_request', 'Request was invalid');
+var QUERY_PARSE_ERROR = new PouchError(400, 'query_parse_error', 'Some query parameter is invalid');
+var DOC_VALIDATION = new PouchError(500, 'doc_validation', 'Bad special document member');
+var BAD_REQUEST = new PouchError(400, 'bad_request', 'Something wrong with the request');
+var NOT_AN_OBJECT = new PouchError(400, 'bad_request', 'Document must be a JSON object');
+var DB_MISSING = new PouchError(404, 'not_found', 'Database not found');
+var IDB_ERROR = new PouchError(500, 'indexed_db_went_bad', 'unknown');
+var WSQ_ERROR = new PouchError(500, 'web_sql_went_bad', 'unknown');
+var LDB_ERROR = new PouchError(500, 'levelDB_went_went_bad', 'unknown');
+var FORBIDDEN = new PouchError(403, 'forbidden', 'Forbidden by design doc validate_doc_update function');
+var INVALID_REV = new PouchError(400, 'bad_request', 'Invalid rev format');
+var FILE_EXISTS = new PouchError(412, 'file_exists', 'The database could not be created, the file already exists.');
+var MISSING_STUB = new PouchError(412, 'missing_stub', 'A pre-existing attachment stub wasn\'t found');
+var INVALID_URL = new PouchError(413, 'invalid_url', 'Provided URL is invalid');
 
 function createError(error, reason) {
   function CustomPouchError(reason) {
@@ -3683,7 +3659,8 @@ exports.IDB_ERROR = IDB_ERROR;
 exports.INVALID_URL = INVALID_URL;
 exports.createError = createError;
 exports.generateErrorFromResponse = generateErrorFromResponse;
-},{"6":6}],15:[function(require,module,exports){
+
+},{"7":7}],15:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -3692,29 +3669,16 @@ function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'defau
 
 var vuvuzela = _interopDefault(require(22));
 
-function slowJsonParse(str) {
+function safeJsonParse(str) {
+  // This try/catch guards against stack overflow errors.
+  // JSON.parse() is faster than vuvuzela.parse() but vuvuzela
+  // cannot overflow.
   try {
     return JSON.parse(str);
   } catch (e) {
     /* istanbul ignore next */
     return vuvuzela.parse(str);
   }
-}
-
-function safeJsonParse(str) {
-  // try/catch is deoptimized in V8, leading to slower
-  // times than we'd like to have. Most documents are _not_
-  // huge, and do not require a slower code path just to parse them.
-  // We can be pretty sure that a document under 50000 characters
-  // will not be so deeply nested as to throw a stack overflow error
-  // (depends on the engine and available memory, though, so this is
-  // just a hunch). 50000 was chosen based on the average length
-  // of this string in our test suite, to try to find a number that covers
-  // most of our test cases (26 over this size, 26378 under it).
-  if (str.length < 50000) {
-    return JSON.parse(str);
-  }
-  return slowJsonParse(str);
 }
 
 function safeJsonStringify(json) {
@@ -3728,6 +3692,7 @@ function safeJsonStringify(json) {
 
 exports.safeJsonParse = safeJsonParse;
 exports.safeJsonStringify = safeJsonStringify;
+
 },{"22":22}],16:[function(require,module,exports){
 (function (global){
 'use strict';
@@ -3813,6 +3778,7 @@ function stringMd5(string) {
 
 exports.binaryMd5 = binaryMd5;
 exports.stringMd5 = stringMd5;
+
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"12":12,"21":21}],17:[function(require,module,exports){
 'use strict';
@@ -3946,6 +3912,17 @@ function rootToLeaf(revs) {
   }
   return paths.reverse();
 }
+
+// for a better overview of what this is doing, read:
+// https://github.com/apache/couchdb-couch/blob/master/src/couch_key_tree.erl
+//
+// But for a quick intro, CouchDB uses a revision tree to store a documents
+// history, A -> B -> C, when a document has conflicts, that is a branch in the
+// tree, A -> (B1 | B2 -> C), We store these as a nested array in the format
+//
+// KeyTree = [Path ... ]
+// Path = {pos: position_from_root, ids: Tree}
+// Tree = [Key, Opts, [Tree, ...]], in particular single node: [Key, []]
 
 function sortByPos$1(a, b) {
   return a.pos - b.pos;
@@ -4217,6 +4194,42 @@ function isLocalId(id) {
   return (/^_local/).test(id);
 }
 
+// returns the current leaf node for a given revision
+function latest(rev, metadata) {
+  var toVisit = metadata.rev_tree.slice();
+  var node;
+  while ((node = toVisit.pop())) {
+    var pos = node.pos;
+    var tree = node.ids;
+    var id = tree[0];
+    var opts = tree[1];
+    var branches = tree[2];
+    var isLeaf = branches.length === 0;
+
+    var history = node.history ? node.history.slice() : [];
+    history.push({id: id, pos: pos, opts: opts});
+
+    if (isLeaf) {
+      for (var i = 0, len = history.length; i < len; i++) {
+        var historyNode = history[i];
+        var historyRev = historyNode.pos + '-' + historyNode.id;
+
+        if (historyRev === rev) {
+          // return the rev of this leaf
+          return pos + '-' + id;
+        }
+      }
+    }
+
+    for (var j = 0, l = branches.length; j < l; j++) {
+      toVisit.push({pos: pos + 1, ids: branches[j], history: history});
+    }
+  }
+
+  /* istanbul ignore next */
+  throw new Error('Unable to resolve latest revision for id ' + metadata.id + ', rev ' + rev);
+}
+
 exports.collectConflicts = collectConflicts;
 exports.collectLeaves = collectLeaves;
 exports.compactTree = compactTree;
@@ -4227,6 +4240,8 @@ exports.revExists = revExists;
 exports.rootToLeaf = rootToLeaf;
 exports.traverseRevTree = traverseRevTree;
 exports.winningRev = winningRev;
+exports.latest = latest;
+
 },{}],18:[function(require,module,exports){
 'use strict';
 
@@ -4238,8 +4253,8 @@ var lie = _interopDefault(require(8));
 var PouchPromise = typeof Promise === 'function' ? Promise : lie;
 
 module.exports = PouchPromise;
+
 },{"8":8}],19:[function(require,module,exports){
-(function (process){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -4247,14 +4262,17 @@ Object.defineProperty(exports, '__esModule', { value: true });
 function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
 
 var Promise = _interopDefault(require(18));
-var getArguments = _interopDefault(require(1));
-var debug = _interopDefault(require(2));
-var events = require(4);
-var inherits = _interopDefault(require(6));
+var getArguments = _interopDefault(require(2));
+var debug = _interopDefault(require(3));
+var pouchdbCollections = require(13);
+var events = require(5);
+var inherits = _interopDefault(require(7));
+var pouchdbUtils = require(19);
 var pouchdbErrors = require(14);
+var immediate = _interopDefault(require(6));
 
 function isBinaryObject(object) {
-  return object instanceof ArrayBuffer ||
+  return (typeof ArrayBuffer !== 'undefined' && object instanceof ArrayBuffer) ||
     (typeof Blob !== 'undefined' && object instanceof Blob);
 }
 
@@ -4335,6 +4353,7 @@ function clone(object) {
 
   newObject = {};
   for (i in object) {
+    /* istanbul ignore else */
     if (Object.prototype.hasOwnProperty.call(object, i)) {
       var value = clone(object[i]);
       if (typeof value !== 'undefined') {
@@ -4365,19 +4384,8 @@ function toPromise(func) {
     // Clone arguments
     args = clone(args);
     var self = this;
-    var tempCB =
-      (typeof args[args.length - 1] === 'function') ? args.pop() : false;
     // if the last argument is a function, assume its a callback
-    var usedCB;
-    if (tempCB) {
-      // if it was a callback, create a new callback which calls it,
-      // but do so async so we don't trap any errors
-      usedCB = function (err, resp) {
-        process.nextTick(function () {
-          tempCB(err, resp);
-        });
-      };
-    }
+    var usedCB = (typeof args[args.length - 1] === 'function') ? args.pop() : false;
     var promise = new Promise(function (fulfill, reject) {
       var resp;
       try {
@@ -4415,7 +4423,7 @@ function adapterFun(name, callback) {
   function logApiCall(self, name, args) {
     /* istanbul ignore if */
     if (log.enabled) {
-      var logArgs = [self._db_name, name];
+      var logArgs = [self.name, name];
       for (var i = 0; i < args.length - 1; i++) {
         logArgs.push(args[i]);
       }
@@ -4424,7 +4432,7 @@ function adapterFun(name, callback) {
       // override the callback itself to log the response
       var origCallback = args[args.length - 1];
       args[args.length - 1] = function (err, res) {
-        var responseArgs = [self._db_name, name];
+        var responseArgs = [self.name, name];
         responseArgs = responseArgs.concat(
           err ? ['error', err] : ['success', res]
         );
@@ -4490,16 +4498,16 @@ function bulkGet(db, opts, callback) {
   var requests = opts.docs;
 
   // consolidate into one request per doc if possible
-  var requestsById = {};
+  var requestsById = new pouchdbCollections.Map();
   requests.forEach(function (request) {
-    if (request.id in requestsById) {
-      requestsById[request.id].push(request);
+    if (requestsById.has(request.id)) {
+      requestsById.get(request.id).push(request);
     } else {
-      requestsById[request.id] = [request];
+      requestsById.set(request.id, [request]);
     }
   });
 
-  var numDocs = Object.keys(requestsById).length;
+  var numDocs = requestsById.size;
   var numDone = 0;
   var perDocResults = new Array(numDocs);
 
@@ -4527,7 +4535,10 @@ function bulkGet(db, opts, callback) {
     checkDone();
   }
 
-  var allRequests = Object.keys(requestsById);
+  var allRequests = [];
+  requestsById.forEach(function (value, key) {
+    allRequests.push(key);
+  });
 
   var i = 0;
 
@@ -4546,7 +4557,7 @@ function bulkGet(db, opts, callback) {
   function processBatch(batch, offset) {
     batch.forEach(function (docId, j) {
       var docIdx = offset + j;
-      var docRequests = requestsById[docId];
+      var docRequests = requestsById.get(docId);
 
       // just use the first request as the "template"
       // TODO: The _bulk_get API allows for more subtle use cases than this,
@@ -4575,7 +4586,7 @@ function bulkGet(db, opts, callback) {
       }
 
       // globally-supplied options
-      ['revs', 'attachments', 'binary', 'ajax'].forEach(function (param) {
+      ['revs', 'attachments', 'binary', 'ajax', 'latest'].forEach(function (param) {
         if (param in opts) {
           docOpts[param] = opts[param];
         }
@@ -4686,9 +4697,7 @@ Changes.prototype.addListener = function (dbName, id, db, opts) {
       }
     }).on('complete', function () {
       if (inprogress === 'waiting') {
-        setTimeout(function (){
-          eventFunction();
-        },0);
+        pouchdbUtils.nextTick(eventFunction);
       }
       inprogress = false;
     }).on('error', onError);
@@ -4704,6 +4713,7 @@ Changes.prototype.removeListener = function (dbName, id) {
   }
   events.EventEmitter.prototype.removeListener.call(this, dbName,
     this._listeners[id]);
+  delete this._listeners[id];
 };
 
 
@@ -4724,6 +4734,7 @@ Changes.prototype.notify = function (dbName) {
 };
 
 function guardedConsole(method) {
+  /* istanbul ignore else */
   if (console !== 'undefined' && method in console) {
     var args = Array.prototype.slice.call(arguments, 1);
     console[method].apply(console, args);
@@ -4764,24 +4775,34 @@ function explainError(status, str) {
   guardedConsole('info', 'The above ' + status + ' is totally normal. ' + str);
 }
 
-function extendInner(obj, otherObj) {
-  for (var key in otherObj) {
-    if (otherObj.hasOwnProperty(key)) {
-      var value = clone(otherObj[key]);
-      if (typeof value !== 'undefined') {
-        obj[key] = value;
+var assign;
+{
+  if (typeof Object.assign === 'function') {
+    assign = Object.assign;
+  } else {
+    // lite Object.assign polyfill based on
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
+    assign = function (target) {
+      var to = Object(target);
+
+      for (var index = 1; index < arguments.length; index++) {
+        var nextSource = arguments[index];
+
+        if (nextSource != null) { // Skip over if undefined or null
+          for (var nextKey in nextSource) {
+            // Avoid bugs when hasOwnProperty is shadowed
+            if (Object.prototype.hasOwnProperty.call(nextSource, nextKey)) {
+              to[nextKey] = nextSource[nextKey];
+            }
+          }
+        }
       }
-    }
+      return to;
+    };
   }
 }
 
-function extend(obj, obj2, obj3) {
-  extendInner(obj, obj2);
-  if (obj3) {
-    extendInner(obj, obj3);
-  }
-  return obj;
-}
+var assign$1 = assign;
 
 function tryFilter(filter, doc, req) {
   try {
@@ -4857,7 +4878,7 @@ if (hasName) {
   };
 }
 
-var functionName = res;
+var res$1 = res;
 
 // Determine id an ID is valid
 //   - invalid IDs begin with an underescore that does not begin '_design' or
@@ -4888,6 +4909,18 @@ function listenerCount(ee, type) {
   return 'listenerCount' in ee ? ee.listenerCount(type) :
                                  events.EventEmitter.listenerCount(ee, type);
 }
+
+// Custom nextTick() shim for browsers. In node, this will just be process.nextTick(). We
+// avoid using process.nextTick() directly because the polyfill is very large and we don't
+// need all of it (see: https://github.com/defunctzombie/node-process).
+// "immediate" 3.0.8 is used by lie, and it's a smaller version of the latest "immediate"
+// package, so it's the one we use.
+// When we use nextTick() in our codebase, we only care about not releasing Zalgo
+// (see: http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony).
+// Microtask vs macrotask doesn't matter to us. So we're free to use the fastest
+// (least latency) option, which is "immediate" due to use of microtasks.
+// All of our nextTicks are isolated to this one function so we can easily swap out one
+// implementation for another.
 
 function parseDesignDocFunctionName(s) {
   if (!s) {
@@ -5073,16 +5106,17 @@ exports.changesHandler = Changes;
 exports.clone = clone;
 exports.defaultBackOff = defaultBackOff;
 exports.explainError = explainError;
-exports.extend = extend;
+exports.assign = assign$1;
 exports.filterChange = filterChange;
 exports.flatten = flatten;
-exports.functionName = functionName;
+exports.functionName = res$1;
 exports.guardedConsole = guardedConsole;
 exports.hasLocalStorage = hasLocalStorage;
 exports.invalidIdError = invalidIdError;
 exports.isChromeApp = isChromeApp;
 exports.isCordova = isCordova;
 exports.listenerCount = listenerCount;
+exports.nextTick = immediate;
 exports.normalizeDdocFunctionName = normalizeDesignDocFunctionName;
 exports.once = once;
 exports.parseDdocFunctionName = parseDesignDocFunctionName;
@@ -5091,10 +5125,9 @@ exports.pick = pick;
 exports.toPromise = toPromise;
 exports.upsert = upsert;
 exports.uuid = uuid;
-}).call(this,require(20))
-},{"1":1,"14":14,"18":18,"2":2,"20":20,"4":4,"6":6}],20:[function(require,module,exports){
-// shim for using process in browser
 
+},{"13":13,"14":14,"18":18,"19":19,"2":2,"3":3,"5":5,"6":6,"7":7}],20:[function(require,module,exports){
+// shim for using process in browser
 var process = module.exports = {};
 
 // cached from whatever global is present so that test runners that stub it
@@ -5105,22 +5138,84 @@ var process = module.exports = {};
 var cachedSetTimeout;
 var cachedClearTimeout;
 
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
 (function () {
-  try {
-    cachedSetTimeout = setTimeout;
-  } catch (e) {
-    cachedSetTimeout = function () {
-      throw new Error('setTimeout is not defined');
+    try {
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
+        }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
     }
-  }
-  try {
-    cachedClearTimeout = clearTimeout;
-  } catch (e) {
-    cachedClearTimeout = function () {
-      throw new Error('clearTimeout is not defined');
+    try {
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
+        }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
     }
-  }
 } ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
 var queue = [];
 var draining = false;
 var currentQueue;
@@ -5145,7 +5240,7 @@ function drainQueue() {
     if (draining) {
         return;
     }
-    var timeout = cachedSetTimeout.call(null, cleanUpNextTick);
+    var timeout = runTimeout(cleanUpNextTick);
     draining = true;
 
     var len = queue.length;
@@ -5162,7 +5257,7 @@ function drainQueue() {
     }
     currentQueue = null;
     draining = false;
-    cachedClearTimeout.call(null, timeout);
+    runClearTimeout(timeout);
 }
 
 process.nextTick = function (fun) {
@@ -5174,7 +5269,7 @@ process.nextTick = function (fun) {
     }
     queue.push(new Item(fun, args));
     if (queue.length === 1 && !draining) {
-        cachedSetTimeout.call(null, drainQueue, 0);
+        runTimeout(drainQueue);
     }
 };
 
@@ -5261,100 +5356,148 @@ process.umask = function() { return 0; };
         return add32((a << s) | (a >>> (32 - s)), b);
     }
 
-    function ff(a, b, c, d, x, s, t) {
-        return cmn((b & c) | ((~b) & d), a, b, x, s, t);
-    }
-
-    function gg(a, b, c, d, x, s, t) {
-        return cmn((b & d) | (c & (~d)), a, b, x, s, t);
-    }
-
-    function hh(a, b, c, d, x, s, t) {
-        return cmn(b ^ c ^ d, a, b, x, s, t);
-    }
-
-    function ii(a, b, c, d, x, s, t) {
-        return cmn(c ^ (b | (~d)), a, b, x, s, t);
-    }
-
     function md5cycle(x, k) {
         var a = x[0],
             b = x[1],
             c = x[2],
             d = x[3];
 
-        a = ff(a, b, c, d, k[0], 7, -680876936);
-        d = ff(d, a, b, c, k[1], 12, -389564586);
-        c = ff(c, d, a, b, k[2], 17, 606105819);
-        b = ff(b, c, d, a, k[3], 22, -1044525330);
-        a = ff(a, b, c, d, k[4], 7, -176418897);
-        d = ff(d, a, b, c, k[5], 12, 1200080426);
-        c = ff(c, d, a, b, k[6], 17, -1473231341);
-        b = ff(b, c, d, a, k[7], 22, -45705983);
-        a = ff(a, b, c, d, k[8], 7, 1770035416);
-        d = ff(d, a, b, c, k[9], 12, -1958414417);
-        c = ff(c, d, a, b, k[10], 17, -42063);
-        b = ff(b, c, d, a, k[11], 22, -1990404162);
-        a = ff(a, b, c, d, k[12], 7, 1804603682);
-        d = ff(d, a, b, c, k[13], 12, -40341101);
-        c = ff(c, d, a, b, k[14], 17, -1502002290);
-        b = ff(b, c, d, a, k[15], 22, 1236535329);
+        a += (b & c | ~b & d) + k[0] - 680876936 | 0;
+        a  = (a << 7 | a >>> 25) + b | 0;
+        d += (a & b | ~a & c) + k[1] - 389564586 | 0;
+        d  = (d << 12 | d >>> 20) + a | 0;
+        c += (d & a | ~d & b) + k[2] + 606105819 | 0;
+        c  = (c << 17 | c >>> 15) + d | 0;
+        b += (c & d | ~c & a) + k[3] - 1044525330 | 0;
+        b  = (b << 22 | b >>> 10) + c | 0;
+        a += (b & c | ~b & d) + k[4] - 176418897 | 0;
+        a  = (a << 7 | a >>> 25) + b | 0;
+        d += (a & b | ~a & c) + k[5] + 1200080426 | 0;
+        d  = (d << 12 | d >>> 20) + a | 0;
+        c += (d & a | ~d & b) + k[6] - 1473231341 | 0;
+        c  = (c << 17 | c >>> 15) + d | 0;
+        b += (c & d | ~c & a) + k[7] - 45705983 | 0;
+        b  = (b << 22 | b >>> 10) + c | 0;
+        a += (b & c | ~b & d) + k[8] + 1770035416 | 0;
+        a  = (a << 7 | a >>> 25) + b | 0;
+        d += (a & b | ~a & c) + k[9] - 1958414417 | 0;
+        d  = (d << 12 | d >>> 20) + a | 0;
+        c += (d & a | ~d & b) + k[10] - 42063 | 0;
+        c  = (c << 17 | c >>> 15) + d | 0;
+        b += (c & d | ~c & a) + k[11] - 1990404162 | 0;
+        b  = (b << 22 | b >>> 10) + c | 0;
+        a += (b & c | ~b & d) + k[12] + 1804603682 | 0;
+        a  = (a << 7 | a >>> 25) + b | 0;
+        d += (a & b | ~a & c) + k[13] - 40341101 | 0;
+        d  = (d << 12 | d >>> 20) + a | 0;
+        c += (d & a | ~d & b) + k[14] - 1502002290 | 0;
+        c  = (c << 17 | c >>> 15) + d | 0;
+        b += (c & d | ~c & a) + k[15] + 1236535329 | 0;
+        b  = (b << 22 | b >>> 10) + c | 0;
 
-        a = gg(a, b, c, d, k[1], 5, -165796510);
-        d = gg(d, a, b, c, k[6], 9, -1069501632);
-        c = gg(c, d, a, b, k[11], 14, 643717713);
-        b = gg(b, c, d, a, k[0], 20, -373897302);
-        a = gg(a, b, c, d, k[5], 5, -701558691);
-        d = gg(d, a, b, c, k[10], 9, 38016083);
-        c = gg(c, d, a, b, k[15], 14, -660478335);
-        b = gg(b, c, d, a, k[4], 20, -405537848);
-        a = gg(a, b, c, d, k[9], 5, 568446438);
-        d = gg(d, a, b, c, k[14], 9, -1019803690);
-        c = gg(c, d, a, b, k[3], 14, -187363961);
-        b = gg(b, c, d, a, k[8], 20, 1163531501);
-        a = gg(a, b, c, d, k[13], 5, -1444681467);
-        d = gg(d, a, b, c, k[2], 9, -51403784);
-        c = gg(c, d, a, b, k[7], 14, 1735328473);
-        b = gg(b, c, d, a, k[12], 20, -1926607734);
+        a += (b & d | c & ~d) + k[1] - 165796510 | 0;
+        a  = (a << 5 | a >>> 27) + b | 0;
+        d += (a & c | b & ~c) + k[6] - 1069501632 | 0;
+        d  = (d << 9 | d >>> 23) + a | 0;
+        c += (d & b | a & ~b) + k[11] + 643717713 | 0;
+        c  = (c << 14 | c >>> 18) + d | 0;
+        b += (c & a | d & ~a) + k[0] - 373897302 | 0;
+        b  = (b << 20 | b >>> 12) + c | 0;
+        a += (b & d | c & ~d) + k[5] - 701558691 | 0;
+        a  = (a << 5 | a >>> 27) + b | 0;
+        d += (a & c | b & ~c) + k[10] + 38016083 | 0;
+        d  = (d << 9 | d >>> 23) + a | 0;
+        c += (d & b | a & ~b) + k[15] - 660478335 | 0;
+        c  = (c << 14 | c >>> 18) + d | 0;
+        b += (c & a | d & ~a) + k[4] - 405537848 | 0;
+        b  = (b << 20 | b >>> 12) + c | 0;
+        a += (b & d | c & ~d) + k[9] + 568446438 | 0;
+        a  = (a << 5 | a >>> 27) + b | 0;
+        d += (a & c | b & ~c) + k[14] - 1019803690 | 0;
+        d  = (d << 9 | d >>> 23) + a | 0;
+        c += (d & b | a & ~b) + k[3] - 187363961 | 0;
+        c  = (c << 14 | c >>> 18) + d | 0;
+        b += (c & a | d & ~a) + k[8] + 1163531501 | 0;
+        b  = (b << 20 | b >>> 12) + c | 0;
+        a += (b & d | c & ~d) + k[13] - 1444681467 | 0;
+        a  = (a << 5 | a >>> 27) + b | 0;
+        d += (a & c | b & ~c) + k[2] - 51403784 | 0;
+        d  = (d << 9 | d >>> 23) + a | 0;
+        c += (d & b | a & ~b) + k[7] + 1735328473 | 0;
+        c  = (c << 14 | c >>> 18) + d | 0;
+        b += (c & a | d & ~a) + k[12] - 1926607734 | 0;
+        b  = (b << 20 | b >>> 12) + c | 0;
 
-        a = hh(a, b, c, d, k[5], 4, -378558);
-        d = hh(d, a, b, c, k[8], 11, -2022574463);
-        c = hh(c, d, a, b, k[11], 16, 1839030562);
-        b = hh(b, c, d, a, k[14], 23, -35309556);
-        a = hh(a, b, c, d, k[1], 4, -1530992060);
-        d = hh(d, a, b, c, k[4], 11, 1272893353);
-        c = hh(c, d, a, b, k[7], 16, -155497632);
-        b = hh(b, c, d, a, k[10], 23, -1094730640);
-        a = hh(a, b, c, d, k[13], 4, 681279174);
-        d = hh(d, a, b, c, k[0], 11, -358537222);
-        c = hh(c, d, a, b, k[3], 16, -722521979);
-        b = hh(b, c, d, a, k[6], 23, 76029189);
-        a = hh(a, b, c, d, k[9], 4, -640364487);
-        d = hh(d, a, b, c, k[12], 11, -421815835);
-        c = hh(c, d, a, b, k[15], 16, 530742520);
-        b = hh(b, c, d, a, k[2], 23, -995338651);
+        a += (b ^ c ^ d) + k[5] - 378558 | 0;
+        a  = (a << 4 | a >>> 28) + b | 0;
+        d += (a ^ b ^ c) + k[8] - 2022574463 | 0;
+        d  = (d << 11 | d >>> 21) + a | 0;
+        c += (d ^ a ^ b) + k[11] + 1839030562 | 0;
+        c  = (c << 16 | c >>> 16) + d | 0;
+        b += (c ^ d ^ a) + k[14] - 35309556 | 0;
+        b  = (b << 23 | b >>> 9) + c | 0;
+        a += (b ^ c ^ d) + k[1] - 1530992060 | 0;
+        a  = (a << 4 | a >>> 28) + b | 0;
+        d += (a ^ b ^ c) + k[4] + 1272893353 | 0;
+        d  = (d << 11 | d >>> 21) + a | 0;
+        c += (d ^ a ^ b) + k[7] - 155497632 | 0;
+        c  = (c << 16 | c >>> 16) + d | 0;
+        b += (c ^ d ^ a) + k[10] - 1094730640 | 0;
+        b  = (b << 23 | b >>> 9) + c | 0;
+        a += (b ^ c ^ d) + k[13] + 681279174 | 0;
+        a  = (a << 4 | a >>> 28) + b | 0;
+        d += (a ^ b ^ c) + k[0] - 358537222 | 0;
+        d  = (d << 11 | d >>> 21) + a | 0;
+        c += (d ^ a ^ b) + k[3] - 722521979 | 0;
+        c  = (c << 16 | c >>> 16) + d | 0;
+        b += (c ^ d ^ a) + k[6] + 76029189 | 0;
+        b  = (b << 23 | b >>> 9) + c | 0;
+        a += (b ^ c ^ d) + k[9] - 640364487 | 0;
+        a  = (a << 4 | a >>> 28) + b | 0;
+        d += (a ^ b ^ c) + k[12] - 421815835 | 0;
+        d  = (d << 11 | d >>> 21) + a | 0;
+        c += (d ^ a ^ b) + k[15] + 530742520 | 0;
+        c  = (c << 16 | c >>> 16) + d | 0;
+        b += (c ^ d ^ a) + k[2] - 995338651 | 0;
+        b  = (b << 23 | b >>> 9) + c | 0;
 
-        a = ii(a, b, c, d, k[0], 6, -198630844);
-        d = ii(d, a, b, c, k[7], 10, 1126891415);
-        c = ii(c, d, a, b, k[14], 15, -1416354905);
-        b = ii(b, c, d, a, k[5], 21, -57434055);
-        a = ii(a, b, c, d, k[12], 6, 1700485571);
-        d = ii(d, a, b, c, k[3], 10, -1894986606);
-        c = ii(c, d, a, b, k[10], 15, -1051523);
-        b = ii(b, c, d, a, k[1], 21, -2054922799);
-        a = ii(a, b, c, d, k[8], 6, 1873313359);
-        d = ii(d, a, b, c, k[15], 10, -30611744);
-        c = ii(c, d, a, b, k[6], 15, -1560198380);
-        b = ii(b, c, d, a, k[13], 21, 1309151649);
-        a = ii(a, b, c, d, k[4], 6, -145523070);
-        d = ii(d, a, b, c, k[11], 10, -1120210379);
-        c = ii(c, d, a, b, k[2], 15, 718787259);
-        b = ii(b, c, d, a, k[9], 21, -343485551);
+        a += (c ^ (b | ~d)) + k[0] - 198630844 | 0;
+        a  = (a << 6 | a >>> 26) + b | 0;
+        d += (b ^ (a | ~c)) + k[7] + 1126891415 | 0;
+        d  = (d << 10 | d >>> 22) + a | 0;
+        c += (a ^ (d | ~b)) + k[14] - 1416354905 | 0;
+        c  = (c << 15 | c >>> 17) + d | 0;
+        b += (d ^ (c | ~a)) + k[5] - 57434055 | 0;
+        b  = (b << 21 |b >>> 11) + c | 0;
+        a += (c ^ (b | ~d)) + k[12] + 1700485571 | 0;
+        a  = (a << 6 | a >>> 26) + b | 0;
+        d += (b ^ (a | ~c)) + k[3] - 1894986606 | 0;
+        d  = (d << 10 | d >>> 22) + a | 0;
+        c += (a ^ (d | ~b)) + k[10] - 1051523 | 0;
+        c  = (c << 15 | c >>> 17) + d | 0;
+        b += (d ^ (c | ~a)) + k[1] - 2054922799 | 0;
+        b  = (b << 21 |b >>> 11) + c | 0;
+        a += (c ^ (b | ~d)) + k[8] + 1873313359 | 0;
+        a  = (a << 6 | a >>> 26) + b | 0;
+        d += (b ^ (a | ~c)) + k[15] - 30611744 | 0;
+        d  = (d << 10 | d >>> 22) + a | 0;
+        c += (a ^ (d | ~b)) + k[6] - 1560198380 | 0;
+        c  = (c << 15 | c >>> 17) + d | 0;
+        b += (d ^ (c | ~a)) + k[13] + 1309151649 | 0;
+        b  = (b << 21 |b >>> 11) + c | 0;
+        a += (c ^ (b | ~d)) + k[4] - 145523070 | 0;
+        a  = (a << 6 | a >>> 26) + b | 0;
+        d += (b ^ (a | ~c)) + k[11] - 1120210379 | 0;
+        d  = (d << 10 | d >>> 22) + a | 0;
+        c += (a ^ (d | ~b)) + k[2] + 718787259 | 0;
+        c  = (c << 15 | c >>> 17) + d | 0;
+        b += (d ^ (c | ~a)) + k[9] - 343485551 | 0;
+        b  = (b << 21 | b >>> 11) + c | 0;
 
-        x[0] = add32(a, x[0]);
-        x[1] = add32(b, x[1]);
-        x[2] = add32(c, x[2]);
-        x[3] = add32(d, x[3]);
+        x[0] = a + x[0] | 0;
+        x[1] = b + x[1] | 0;
+        x[2] = c + x[2] | 0;
+        x[3] = d + x[3] | 0;
     }
 
     function md5blk(s) {
@@ -6097,8 +6240,7 @@ exports.parse = function (str) {
 'use strict'
 
 var WebSqlPouchCore = require(11)
-var extend = require(7).extend
-var guardedConsole = require(19).guardedConsole
+var assign = require(1)
 
 /* global cordova, sqlitePlugin, openDatabase */
 function createOpenDBFunction (opts) {
@@ -6109,7 +6251,7 @@ function createOpenDBFunction (opts) {
       // It's better to just use their "new" format and pass in a big ol'
       // options object. Also there are many options here that may come from
       // the PouchDB constructor, so we have to grab those.
-      var sqlitePluginOpts = extend({}, opts, {
+      var sqlitePluginOpts = assign({}, opts, {
         name: name,
         version: version,
         description: description,
@@ -6125,12 +6267,12 @@ function createOpenDBFunction (opts) {
 
 function CordovaSQLitePouch (opts, callback) {
   var websql = createOpenDBFunction(opts)
-  var _opts = extend({
+  var _opts = assign({
     websql: websql
   }, opts)
 
   if (typeof cordova === 'undefined' || typeof sqlitePlugin === 'undefined' || typeof openDatabase === 'undefined') {
-    guardedConsole('error',
+    console.error(
       'PouchDB error: you must install a SQLite plugin ' +
       'in order for PouchDB to work on this platform. Options:' +
       '\n - https://github.com/nolanlawson/cordova-plugin-sqlite-2' +
@@ -6149,9 +6291,15 @@ CordovaSQLitePouch.valid = function () {
 // no need for a prefix in cordova (i.e. no need for `_pouch_` prefix
 CordovaSQLitePouch.use_prefix = false
 
-module.exports = function (PouchDB) {
+function cordovaSqlitePlugin (PouchDB) {
   PouchDB.adapter('cordova-sqlite', CordovaSQLitePouch, true)
 }
 
-},{"11":11,"19":19,"7":7}]},{},[23])(23)
+if (typeof window !== 'undefined' && window.PouchDB) {
+  window.PouchDB.plugin(cordovaSqlitePlugin)
+}
+
+module.exports = cordovaSqlitePlugin
+
+},{"1":1,"11":11}]},{},[23])(23)
 });
